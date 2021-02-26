@@ -33,7 +33,7 @@ def generate_powersets(baskets, index, dataset, result, size, support):
 
     for p in pair:
         for basket in baskets:
-            if set(p).issubset(set(basket[1])):
+            if set(p).issubset(basket[1]):
                 if p not in powersets:
                     powersets[p] = 1
                 else:
@@ -42,28 +42,30 @@ def generate_powersets(baskets, index, dataset, result, size, support):
     for s in powersets:
         if powersets[s] >= int(support):
             s = tuple(sorted(s))
-            if s not in current_pairs:
-                current_pairs.append(s)
-                result.append(s)
+            current_pairs.append(s)
+            result.append(s)
 
     current_candidates = list(set(itertools.chain.from_iterable(current_pairs)))
-    # print(str(index) + ".Counter: " + str(len(current_candidates)))
+    # print(str(index) + ".current_candidates: " + str(len(current_candidates)))
+
+    if size==3:
+        print(str(index) + ".current_candidates: " , current_candidates)
 
     return current_candidates
 
 
 # implement A-priori
-def a_priori(iterator, index, s):
+def a_priori(iterator, index, s, lineCount):
     final_iterator = []
     singletons = {}
     prev_candidate_set = []
     result = []
-    buckets = []
+    baskets = []
 
     for business_user_tuple in iterator:
-        buckets.append(business_user_tuple)
+        baskets.append(list(business_user_tuple))
 
-    for i, j in enumerate(buckets):
+    for i, j in enumerate(baskets):
         value_ids = j[1]
         for value in value_ids:
             if value not in singletons:
@@ -71,30 +73,28 @@ def a_priori(iterator, index, s):
             else:
                 singletons[value] += 1
 
+    # print(str(index) + ".singletons", singletons)
     for k in singletons:
         if singletons[k] >= int(s):
-            if k not in result:
-                prev_candidate_set.append(k)
-                result.append((k,))
+            prev_candidate_set.append(k)
+            result.append((k,))
 
+    # print(str(index) + ".prev_candidate_set", prev_candidate_set)
     start_time = time.time()
     keep_true = True
     counter = 2
 
     while keep_true:
-        curr_candidate_set = generate_powersets(buckets, index, prev_candidate_set, result, counter, s)
+        curr_candidate_set = generate_powersets(baskets, index, prev_candidate_set, result, counter, s)
         if len(curr_candidate_set) == 0:
             keep_true = False
-        else:
-            prev_candidate_set = curr_candidate_set
-            counter += 1
+        prev_candidate_set = curr_candidate_set
+        counter += 1
 
-    '''
-    print(str(index) + ".Counter: " + str(counter))
+    # print(str(index) + ".Counter: " + str(counter))
     end_time = time.time()
     time_duration = end_time - start_time
-    print(str(index) + ".Duration generate power sets: " + str(time_duration))
-    '''
+    # print(str(index) + ".Duration generate power sets: " + str(time_duration))
 
     for i in result:
         if i not in final_iterator:
@@ -108,12 +108,16 @@ def apply_son_algorithm(customer_product_data, filter_threshold, support):
     data = customer_product_data \
         .map(lambda line: line.split(",")) \
         .filter(lambda line: 'DATE-CUSTOMER_ID' not in line[0]) \
-        .map(lambda line: (line[0].encode("ascii", "ignore"), line[1].encode("ascii", "ignore"))).groupByKey()
+        .map(lambda line: (str(line[0]), str(line[1]))).groupByKey().mapValues(set)
+
+    lineCount = data.count()
 
     # start_time = time.time()
-    # pass 1
-    candidates = data.mapPartitionsWithIndex(lambda index, x: a_priori(x, index, int(support) / partition_count, filter_threshold)) \
+    # SON Algorithm : pass 1
+    candidates = data.mapPartitionsWithIndex(lambda index, x: a_priori(x, index, int(support), lineCount)) \
         .distinct().collect()
+
+    # print(len(candidates))
 
     '''
     end_time = time.time()
@@ -121,13 +125,15 @@ def apply_son_algorithm(customer_product_data, filter_threshold, support):
     print("Duration pass 1: " + str(time_duration))
     '''
 
-    # pass 2
+    # SON Algorithm : pass 2
     # start_time = time.time()
     frequent_itemsets = data.mapPartitions(lambda x: get_final_frequent_itemsets(x, candidates)) \
         .reduceByKey(lambda x, y: x + y) \
         .filter(lambda x: x[1] >= int(support)) \
         .map(lambda x: x[0]) \
         .collect()
+
+    # print(len(frequent_itemsets))
     '''
     end_time = time.time()
     time_duration = end_time - start_time
@@ -151,11 +157,14 @@ def apply_son_algorithm(customer_product_data, filter_threshold, support):
     file = open(output_file_path, 'w')
     file.write("Candidates:\n")
     for i in candidate_formatted:
-        file.write(str(sorted(candidate_formatted[i])).replace(",)", ")").replace("[", "").replace("]", "") + "\n\n")
+        file.write(
+            str(sorted(candidate_formatted[i])).replace(",)", ")").replace("[", "").replace("]", "").replace(', ',
+                                                                                                             ',') + "\n\n")
     file.write("Frequent Itemsets:\n")
     for j in frequent_itemsets_formatted:
         file.write(
-            str(sorted(frequent_itemsets_formatted[j])).replace(",)", ")").replace("[", "").replace("]", "") + "\n\n")
+            str(sorted(frequent_itemsets_formatted[j])).replace(",)", ")").replace("[", "").replace("]", "").replace(
+                ', ', ',') + "\n\n")
     file.close()
 
 
@@ -170,29 +179,29 @@ if __name__ == '__main__':
     input_file_path = cmd_args[3].replace("'", "")
     output_file_path = cmd_args[4].replace("'", "").replace(']', '')
 
-    # Task 2.1 starts here
+
     start_time = time.time()
+    # Task 2.1 starts here
+    partition_count = 1
     customer_data = sc.textFile(input_file_path)
     sc.setLogLevel('ERROR')
 
     processed_customer_data = customer_data.map(lambda line: line.split(",")) \
         .filter(lambda line: 'TRANSACTION_DT' not in line[0]) \
-        .map(lambda line: (line[0], line[1].lstrip('0'), line[5])) \
-        .map(lambda line: (line[0] + '-' + line[1], line[2])).collect()
+        .map(lambda line: (str(line[0]), int(line[1].replace('"','')), line[5])) \
+        .map(lambda line: (line[0] + '-' + str(line[1]), line[2])).collect()
 
-    # print(processed_customer_data)
 
-    # file = open('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', 'w')
-    file = open('customer_product.csv', 'w')
+    file = open('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', 'w')
+    # file = open('customer_product.csv', 'w')
     file.write("DATE-CUSTOMER_ID, PRODUCT_ID\n")
     for i in processed_customer_data:
         file.write(str(i[0]).replace('"', '') + ',' + str(i[1]).replace('"', '') + "\n")
     file.close()
 
     # Task 2.2 starts here
-    partition_count = 2
-    customer_product_data = sc.textFile('customer_product.csv', partition_count)
-    # customer_product_data = sc.textFile('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', partition_count)
+    # customer_product_data = sc.textFile('customer_product.csv', partition_count)
+    customer_product_data = sc.textFile('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', partition_count)
 
     apply_son_algorithm(customer_product_data, filter_threshold, support)
 
