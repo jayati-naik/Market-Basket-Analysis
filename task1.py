@@ -31,7 +31,6 @@ def generate_powersets(baskets, index, dataset, result, size, support):
     pair = list(
         itertools.chain.from_iterable(itertools.combinations(list(dataset), r) for r in range(size, size + 1)))
 
-
     for p in pair:
         for basket in baskets:
             if set(p).issubset(basket[1]):
@@ -47,11 +46,7 @@ def generate_powersets(baskets, index, dataset, result, size, support):
             result.append(s)
 
     current_candidates = list(set(itertools.chain.from_iterable(current_pairs)))
-    print(str(index) + ".current_candidates: " + str(len(current_candidates)))
-
-    if size==3:
-        print(str(index) + ".current_candidates: " , current_candidates)
-
+    # print(str(index) + ".current_candidates: " + str(len(current_candidates)))
     return current_candidates
 
 
@@ -65,7 +60,6 @@ def a_priori(iterator, index, s, lineCount):
 
     for business_user_tuple in iterator:
         baskets.append(list(business_user_tuple))
-
 
     for i, j in enumerate(baskets):
         value_ids = j[1]
@@ -95,11 +89,10 @@ def a_priori(iterator, index, s, lineCount):
         prev_candidate_set = curr_candidate_set
         counter += 1
 
-    print(str(index) + ".Counter: " + str(counter))
+    # print(str(index) + ".Counter: " + str(counter))
     end_time = time.time()
     time_duration = end_time - start_time
-    print(str(index) + ".Duration generate power sets: " + str(time_duration))
-
+    # print(str(index) + ".Duration generate power sets: " + str(time_duration))
 
     for i in result:
         if i not in final_iterator:
@@ -121,7 +114,7 @@ if __name__ == '__main__':
 
     partition_count = 2
     first_start_time = time.time()
-    user_business_data = sc.textFile(input_file_path,partition_count)
+    user_business_data = sc.textFile(input_file_path, partition_count)
     sc.setLogLevel("ERROR")
 
     init_start_time = time.time()
@@ -141,14 +134,15 @@ if __name__ == '__main__':
 
     lineCount = data.count()
 
-    start_time = time.time()
+    # start_time = time.time()
     # SON Algorithm : pass 1
-    candidates = data.mapPartitionsWithIndex(lambda index, x: a_priori(x, index, int(support) / partition_count, lineCount)) \
+    candidates = data.mapPartitionsWithIndex(
+        lambda index, x: a_priori(x, index, int(support) / partition_count, lineCount)) \
         .distinct().collect()
 
-    end_time = time.time()
-    time_duration = end_time - start_time
-    print("Duration pass 1: " + str(time_duration))
+    # end_time = time.time()
+    # time_duration = end_time - start_time
+    # print("Duration pass 1: " + str(time_duration))
 
     # SON Algorithm : pass 2
     # start_time = time.time()

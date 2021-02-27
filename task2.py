@@ -24,7 +24,7 @@ def get_final_frequent_itemsets(iterator, candidates):
     return final
 
 
-def generate_powersets(baskets, index, dataset, result, size, support):
+def generate_powersets(baskets, index, dataset, result, size, s):
     powersets = {}
     current_pairs = []
 
@@ -39,28 +39,28 @@ def generate_powersets(baskets, index, dataset, result, size, support):
                 else:
                     powersets[p] += 1
 
-    for s in powersets:
-        if powersets[s] >= int(support):
-            s = tuple(sorted(s))
-            current_pairs.append(s)
-            result.append(s)
+    print(str(index) + ".powersets: " , len(powersets))
+
+    for s1 in powersets:
+        if powersets[s1] >= int(s):
+            s1 = tuple(sorted(s1))
+            current_pairs.append(s1)
+            result.append(s1)
 
     current_candidates = list(set(itertools.chain.from_iterable(current_pairs)))
-    # print(str(index) + ".current_candidates: " + str(len(current_candidates)))
-
-    if size==3:
-        print(str(index) + ".current_candidates: " , current_candidates)
+    print(str(index) + ".current_candidates: " + str(len(current_candidates)))
 
     return current_candidates
 
 
 # implement A-priori
-def a_priori(iterator, index, s, lineCount):
+def a_priori(iterator, index, s):
     final_iterator = []
     singletons = {}
     prev_candidate_set = []
     result = []
     baskets = []
+    print(str(index) + ".support", s)
 
     for business_user_tuple in iterator:
         baskets.append(list(business_user_tuple))
@@ -73,14 +73,13 @@ def a_priori(iterator, index, s, lineCount):
             else:
                 singletons[value] += 1
 
-    # print(str(index) + ".singletons", singletons)
     for k in singletons:
         if singletons[k] >= int(s):
             prev_candidate_set.append(k)
             result.append((k,))
 
-    # print(str(index) + ".prev_candidate_set", prev_candidate_set)
-    start_time = time.time()
+    print(str(index) + ".prev_candidate_set", len(prev_candidate_set))
+    # start_time = time.time()
     keep_true = True
     counter = 2
 
@@ -91,9 +90,9 @@ def a_priori(iterator, index, s, lineCount):
         prev_candidate_set = curr_candidate_set
         counter += 1
 
-    # print(str(index) + ".Counter: " + str(counter))
-    end_time = time.time()
-    time_duration = end_time - start_time
+    print(str(index) + ".Counter: " + str(counter))
+    # end_time = time.time()
+    # time_duration = end_time - start_time
     # print(str(index) + ".Duration generate power sets: " + str(time_duration))
 
     for i in result:
@@ -102,22 +101,11 @@ def a_priori(iterator, index, s, lineCount):
 
     return final_iterator
 
-
-def apply_son_algorithm(customer_product_data, filter_threshold, support):
-    #  step 1 create buckets customer => product
-    data = customer_product_data \
-        .map(lambda line: line.split(",")) \
-        .filter(lambda line: 'DATE-CUSTOMER_ID' not in line[0]) \
-        .map(lambda line: (str(line[0]), str(line[1]))).groupByKey().mapValues(set)
-
-    lineCount = data.count()
-
+def apply_son_algorithm(customer_product_data, s, p):
     # start_time = time.time()
     # SON Algorithm : pass 1
-    candidates = data.mapPartitionsWithIndex(lambda index, x: a_priori(x, index, int(support), lineCount)) \
+    candidates = customer_product_data.mapPartitionsWithIndex(lambda index, x: a_priori(x, index, int(s)/p)) \
         .distinct().collect()
-
-    # print(len(candidates))
 
     '''
     end_time = time.time()
@@ -127,13 +115,12 @@ def apply_son_algorithm(customer_product_data, filter_threshold, support):
 
     # SON Algorithm : pass 2
     # start_time = time.time()
-    frequent_itemsets = data.mapPartitions(lambda x: get_final_frequent_itemsets(x, candidates)) \
+    frequent_itemsets = customer_product_data.mapPartitions(lambda x: get_final_frequent_itemsets(x, candidates)) \
         .reduceByKey(lambda x, y: x + y) \
-        .filter(lambda x: x[1] >= int(support)) \
+        .filter(lambda x: x[1] >= int(s)) \
         .map(lambda x: x[0]) \
         .collect()
 
-    # print(len(frequent_itemsets))
     '''
     end_time = time.time()
     time_duration = end_time - start_time
@@ -179,31 +166,36 @@ if __name__ == '__main__':
     input_file_path = cmd_args[3].replace("'", "")
     output_file_path = cmd_args[4].replace("'", "").replace(']', '')
 
-
     start_time = time.time()
     # Task 2.1 starts here
-    partition_count = 1
-    customer_data = sc.textFile(input_file_path)
+    partition_count = 8
+    customer_data = sc.textFile(input_file_path,partition_count)
     sc.setLogLevel('ERROR')
 
     processed_customer_data = customer_data.map(lambda line: line.split(",")) \
         .filter(lambda line: 'TRANSACTION_DT' not in line[0]) \
-        .map(lambda line: (str(line[0]), int(line[1].replace('"','')), line[5])) \
-        .map(lambda line: (line[0] + '-' + str(line[1]), line[2])).collect()
+        .map(lambda x: (str(x[0]).replace('"', '') + '-' + str(int(x[1].replace('"', ''))), str(x[5])))
 
-
-    file = open('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', 'w')
-    # file = open('customer_product.csv', 'w')
+    # file = open('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', 'w')
+    file = open('customer_product.csv', 'w')
     file.write("DATE-CUSTOMER_ID, PRODUCT_ID\n")
-    for i in processed_customer_data:
+    for i in processed_customer_data.collect():
         file.write(str(i[0]).replace('"', '') + ',' + str(i[1]).replace('"', '') + "\n")
     file.close()
 
     # Task 2.2 starts here
-    # customer_product_data = sc.textFile('customer_product.csv', partition_count)
-    customer_product_data = sc.textFile('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', partition_count)
+    customer_product_data = sc.textFile('customer_product.csv', partition_count)
+    # customer_product_data = sc.textFile('/Users/jayati/Projects/DSCI553/HW2/customer_product.csv', partition_count)
 
-    apply_son_algorithm(customer_product_data, filter_threshold, support)
+    #  step 1 create buckets customer => product
+    customer_product_data = customer_product_data \
+        .map(lambda line: line.split(",")) \
+        .filter(lambda line: 'DATE-CUSTOMER_ID' not in line[0]) \
+        .map(lambda x: (str(x[0]), str(int(x[1])))) \
+        .groupByKey().mapValues(set) \
+        .filter(lambda x: len(x[1]) > int(filter_threshold))
+
+    apply_son_algorithm(customer_product_data, int(support), partition_count)
 
     end_time = time.time()
     time_duration = end_time - start_time
